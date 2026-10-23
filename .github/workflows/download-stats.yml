@@ -1,0 +1,27 @@
+# Daily download report. Keeps the "Download stats" issue current and posts a
+# comment that mentions the repository owner whenever the counts change, which
+# GitHub delivers as an email notification. Run it by hand from the Actions tab
+# to get a report immediately.
+name: download-stats
+
+on:
+  schedule:
+    - cron: "17 7 * * *"   # 07:17 UTC daily, after pypistats.org has the previous day
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Collect counts and update the stats issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python .github/scripts/download_stats.py

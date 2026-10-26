@@ -61,6 +61,21 @@ def pypi_counts():
             "month": data.get("last_month", 0), "total": total}
 
 
+def pip_counts():
+    """Downloads that reported an operating system. pip and uv send one; mirrors,
+    scanners and other bots usually do not, so this is closer to real installs."""
+    system = fetch_json(f"https://pypistats.org/api/packages/{PACKAGE}/system")
+    rows = (system or {}).get("data", [])
+    if not rows:
+        return {"day": 0, "week": 0, "total": 0}
+    latest = datetime.date.fromisoformat(max(row["date"] for row in rows))
+    week_start = (latest - datetime.timedelta(days=6)).isoformat()
+    reported = [row for row in rows if row.get("category") not in (None, "null")]
+    return {"day": sum(r["downloads"] for r in reported if r["date"] == latest.isoformat()),
+            "week": sum(r["downloads"] for r in reported if r["date"] >= week_start),
+            "total": sum(r["downloads"] for r in reported)}
+
+
 def github_counts():
     releases = gh(f"/repos/{REPO}/releases?per_page=100") or []
     by_release = {}
@@ -111,12 +126,16 @@ def fmt_change(new, old):
 def build_table(snap, prev):
     p = prev or {}
     pp = p.get("pypi") or {}
+    pi = p.get("pip") or {}
     pg = p.get("github") or {}
     rows = [
         ("PyPI, last day", snap["pypi"]["day"], pp.get("day")),
         ("PyPI, last week", snap["pypi"]["week"], pp.get("week")),
         ("PyPI, last month", snap["pypi"]["month"], pp.get("month")),
         ("PyPI, all time (without mirrors)", snap["pypi"]["total"], pp.get("total")),
+        ("pip/uv installs (OS reported), last day", snap["pip"]["day"], pi.get("day")),
+        ("pip/uv installs (OS reported), last week", snap["pip"]["week"], pi.get("week")),
+        ("pip/uv installs (OS reported), all time", snap["pip"]["total"], pi.get("total")),
         ("GitHub release assets, all time", snap["github"]["total"], pg.get("total")),
     ]
     for tag, count in sorted(snap["github"]["by_release"].items(), reverse=True):
@@ -124,6 +143,10 @@ def build_table(snap, prev):
     lines = ["| Source | Downloads | Change |", "|---|---:|---:|"]
     for label, value, old in rows:
         lines.append(f"| {label} | {value} | {fmt_change(value, old)} |")
+    lines.append("")
+    lines.append("_Most PyPI downloads that report no operating system come from mirrors, security "
+                 "scanners and other bots, which fetch every new release; the pip/uv rows leave "
+                 "them out._")
     if not snap["pypi"]["available"]:
         lines.append("")
         lines.append("_PyPI statistics are not available yet; pypistats.org publishes them with about a one-day delay._")
@@ -139,7 +162,7 @@ def issue_body(table, today):
 
 def main():
     today = datetime.date.today().isoformat()
-    snap = {"date": today, "pypi": pypi_counts(), "github": github_counts()}
+    snap = {"date": today, "pypi": pypi_counts(), "pip": pip_counts(), "github": github_counts()}
     print(json.dumps(snap, indent=2))
 
     if DRY_RUN:
